@@ -827,7 +827,7 @@ string_constant_expression (const std::string &val)
 }
 
 tree
-wchar_constant_expression (wchar_t c)
+wchar_constant_expression (uint32_t c)
 {
   return build_int_cst (wchar_type (), c);
 }

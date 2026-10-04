@@ -174,7 +174,7 @@ tree string_constant_expression (const std::string &val);
 tree char_constant_expression (char c);
 
 // Get a char literal
-tree wchar_constant_expression (wchar_t c);
+tree wchar_constant_expression (uint32_t c);
 
 // Get a size literal
 tree size_constant_expression (size_t val);

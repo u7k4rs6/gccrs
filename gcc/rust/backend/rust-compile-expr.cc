@@ -36,6 +36,7 @@
 #include "rust-compile-asm.h"
 #include "fold-const.h"
 #include "realmpfr.h"
+#include "rust-unicode.h"
 #include "convert.h"
 #include "print-tree.h"
 #include "rust-hir-bound.h"
@@ -2176,9 +2177,12 @@ CompileExpr::compile_char_literal (const HIR::LiteralExpr &expr,
   rust_assert (expr.get_lit_type () == HIR::Literal::CHAR);
   const auto literal_value = expr.get_literal ();
 
-  // FIXME needs wchar_t
-  char c = literal_value.as_string ().c_str ()[0];
-  return Backend::wchar_constant_expression (c);
+  // The lexer stores the character as its UTF-8 encoding, decode it back
+  // to the Unicode scalar value.
+  auto utf8 = Utf8String::make_utf8_string (literal_value.as_string ());
+  rust_assert (utf8.has_value () && utf8->get_chars ().size () == 1);
+
+  return Backend::wchar_constant_expression (utf8->get_chars ()[0].value);
 }
 
 tree
