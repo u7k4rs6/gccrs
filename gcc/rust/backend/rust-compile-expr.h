@@ -137,6 +137,8 @@ protected:
 
   tree type_cast_expression (tree type_to_cast_to, tree expr, location_t locus);
 
+  tree compile_assigned_value (HIR::Expr &value, HIR::Expr &place);
+
   tree array_value_expr (location_t expr_locus,
 			 const TyTy::ArrayType &array_tyty, tree array_type,
 			 HIR::ArrayElemsValues &elems);

@@ -354,13 +354,26 @@ void
 CompileExpr::visit (HIR::CompoundAssignmentExpr &expr)
 {
   auto op = expr.get_expr_type ();
-  tree lhs = CompileExpr::Compile (expr.get_lhs (), ctx);
-  tree rhs = CompileExpr::Compile (expr.get_rhs (), ctx);
   tree compound_assignment = NULL_TREE;
   // this might be an operator overload situation lets check
   TyTy::FnType *fntype;
   bool is_op_overload = ctx->get_tyctx ()->lookup_operator_overload (
     expr.get_mappings ().get_hirid (), &fntype);
+
+  // An overloaded compound assignment evaluates its operands left to right,
+  // but for primitive types the right operand is evaluated first.
+  tree lhs = NULL_TREE;
+  tree rhs = NULL_TREE;
+  if (is_op_overload)
+    {
+      lhs = CompileExpr::Compile (expr.get_lhs (), ctx);
+      rhs = CompileExpr::Compile (expr.get_rhs (), ctx);
+    }
+  else
+    {
+      rhs = compile_assigned_value (expr.get_rhs (), expr.get_lhs ());
+      lhs = CompileExpr::Compile (expr.get_lhs (), ctx);
+    }
   if (is_op_overload)
     {
       auto lang_item_type = LangItem::CompoundAssignmentOperatorToLangItem (
@@ -371,10 +384,29 @@ CompileExpr::visit (HIR::CompoundAssignmentExpr &expr)
     }
   else if (ctx->in_fn () && !ctx->const_context_p ())
     {
+      // The place is used below both as an operand and as the assignment
+      // target, but must be evaluated only once, so when evaluating it has
+      // side effects save its address in a temporary and work through that.
+      if (TREE_SIDE_EFFECTS (lhs))
+	{
+	  tree fndecl = ctx->peek_fn ().fndecl;
+	  tree place_addr = address_expression (lhs, expr.get_locus ());
+	  tree place_stmt = NULL_TREE;
+	  Bvariable *place_tmp
+	    = Backend::temporary_variable (fndecl, NULL_TREE,
+					   TREE_TYPE (place_addr), place_addr,
+					   false, expr.get_locus (),
+					   &place_stmt);
+	  ctx->add_statement (place_stmt);
+	  lhs = build_fold_indirect_ref_loc (expr.get_locus (),
+					     place_tmp->get_tree (
+					       expr.get_locus ()));
+	}
+
       tree tmp = NULL_TREE;
       Bvariable *receiver
 	= Backend::temporary_variable (ctx->peek_fn ().fndecl, NULL_TREE,
-				       TREE_TYPE (lhs), lhs, true,
+				       TREE_TYPE (lhs), NULL_TREE, true,
 				       expr.get_locus (), &tmp);
       tree check
 	= Backend::arithmetic_or_logical_expression_checked (op, lhs, rhs,
@@ -1374,8 +1406,9 @@ CompileExpr::visit (HIR::LiteralExpr &expr)
 void
 CompileExpr::visit (HIR::AssignmentExpr &expr)
 {
+  // Rust evaluates the assigned value before the place it is assigned to.
+  auto rvalue = compile_assigned_value (expr.get_rhs (), expr.get_lhs ());
   auto lvalue = CompileExpr::Compile (expr.get_lhs (), ctx);
-  auto rvalue = CompileExpr::Compile (expr.get_rhs (), ctx);
 
   // assignments are coercion sites so lets convert the rvalue if necessary
   TyTy::BaseType *expected = nullptr;
@@ -1394,15 +1427,38 @@ CompileExpr::visit (HIR::AssignmentExpr &expr)
 			  expected, expr.get_lhs ().get_locus (),
 			  expr.get_rhs ().get_locus ());
 
-  // rust_debug_loc (expr.get_locus (), "XXXXXX assignment");
-  // debug_tree (rvalue);
-  // debug_tree (lvalue);
-
   tree assignment
     = Backend::assignment_statement (lvalue, rvalue, expr.get_locus ());
 
   ctx->add_statement (assignment);
   translated = unit_expression (expr.get_locus ());
+}
+
+// Compile VALUE, the value assigned to PLACE by an assignment or a primitive
+// compound assignment, which Rust evaluates before PLACE. Compiling PLACE
+// afterwards can emit statements that change what VALUE reads, as in
+// a[{ i += 1; i }] = i, so unless PLACE is a plain variable save VALUE in a
+// temporary.
+tree
+CompileExpr::compile_assigned_value (HIR::Expr &value, HIR::Expr &place)
+{
+  tree value_tree = CompileExpr::Compile (value, ctx);
+  if (error_operand_p (value_tree)
+      || place.get_expression_type () == HIR::Expr::ExprType::Path
+      || !ctx->in_fn () || ctx->const_context_p ()
+      || VOID_TYPE_P (TREE_TYPE (value_tree))
+      || TREE_ADDRESSABLE (TREE_TYPE (value_tree))
+      || really_constant_p (value_tree))
+    return value_tree;
+
+  location_t locus = value.get_locus ();
+  tree stmt = NULL_TREE;
+  Bvariable *tmp
+    = Backend::temporary_variable (ctx->peek_fn ().fndecl, NULL_TREE,
+				   TREE_TYPE (value_tree), value_tree, false,
+				   locus, &stmt);
+  ctx->add_statement (stmt);
+  return tmp->get_tree (locus);
 }
 
 // Helper for CompileExpr::visit (HIR::MatchExpr).
