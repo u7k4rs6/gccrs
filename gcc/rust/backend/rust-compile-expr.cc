@@ -44,6 +44,7 @@
 #include "rust-tree.h"
 #include "rust-tyty.h"
 #include "tree-core.h"
+#include "rust-builtins.h"
 
 namespace Rust {
 namespace Compile {
@@ -3022,8 +3023,61 @@ CompileExpr::visit (HIR::ArrayIndexExpr &expr)
 	= indirect_expression (array_reference, expr.get_locus ());
     }
 
+  index = bounds_checked_index (TREE_TYPE (array_reference), index,
+				expr.get_locus ());
+
   translated = Backend::array_index_expression (array_reference, index,
 						expr.get_locus ());
+}
+
+// Rust checks every index into an array at runtime and panics when it is out
+// of bounds. Return INDEX wrapped in such a check against ARRAY_TYPE, which
+// aborts like the arithmetic overflow checks do until panics are supported.
+// Const functions are checked too, since they can also run at runtime. A
+// constant index that is in bounds needs no check, and one that is out of
+// bounds in a constant context is reported by constant evaluation.
+tree
+CompileExpr::bounds_checked_index (tree array_type, tree index,
+				   location_t locus)
+{
+  if (!ctx->in_fn () || TREE_CODE (array_type) != ARRAY_TYPE
+      || !TYPE_DOMAIN (array_type) || !TYPE_MAX_VALUE (TYPE_DOMAIN (array_type))
+      || TREE_CODE (TYPE_MAX_VALUE (TYPE_DOMAIN (array_type))) != INTEGER_CST
+      || !INTEGRAL_TYPE_P (TREE_TYPE (index)))
+    return index;
+
+  tree max = TYPE_MAX_VALUE (TYPE_DOMAIN (array_type));
+  tree folded_index = fold (index);
+  if (TREE_CODE (folded_index) == INTEGER_CST)
+    {
+      bool in_bounds
+	= !integer_all_onesp (max)
+	  && wi::leu_p (wi::to_widest (folded_index), wi::to_widest (max));
+      if (in_bounds || ctx->const_context_p ())
+	return index;
+    }
+
+  tree index_type = TREE_TYPE (index);
+
+  // The length is the maximum index plus one. For a zero length array the
+  // maximum index is all ones, so the length wraps around to zero and every
+  // index is out of bounds.
+  tree length = fold_build2_loc (locus, PLUS_EXPR, index_type,
+				 fold_convert (index_type, max),
+				 build_int_cst (index_type, 1));
+
+  tree abort_fn = NULL_TREE;
+  Compile::BuiltinsContext::get ().lookup_simple_builtin ("__builtin_abort",
+							  &abort_fn);
+  rust_assert (abort_fn);
+
+  index = save_expr (index);
+  tree out_of_bounds
+    = fold_build2_loc (locus, GE_EXPR, boolean_type_node, index, length);
+  tree check = build3_loc (locus, COND_EXPR, void_type_node, out_of_bounds,
+			   build_call_expr_loc (locus, abort_fn, 0), NULL_TREE);
+
+  return build2_loc (locus, COMPOUND_EXPR, index_type, check, index);
 }
 
 void

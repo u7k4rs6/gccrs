@@ -3566,11 +3566,17 @@ eval_builtin_function_call (const constexpr_ctx *ctx, tree t, tree fun,
 	  if (fndecl_built_in_p (fun, BUILT_IN_UNREACHABLE)
 	      && EXPR_LOCATION (t) == BUILTINS_LOCATION)
 	    error ("%<constexpr%> call flows off the end of the function");
+	  /* The runtime checks, such as array bounds checks, abort when they
+	     fail.  */
+	  else if (fndecl_built_in_p (fun, BUILT_IN_ABORT))
+	    rust_error_at (EXPR_LOCATION (t), ErrorCode::E0080,
+			   "evaluation of constant value failed");
 	  else
 	    {
 	      new_call = build_call_array_loc (EXPR_LOCATION (t), TREE_TYPE (t),
 					       CALL_EXPR_FN (t), nargs, args);
-	      error ("%q+E is not a constant expression", new_call);
+	      error_at (EXPR_LOCATION (t), "%qE is not a constant expression",
+			new_call);
 	    }
 	}
       *non_constant_p = true;
