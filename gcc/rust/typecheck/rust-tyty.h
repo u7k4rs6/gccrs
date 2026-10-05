@@ -1374,11 +1374,16 @@ public:
 
   const std::set<NodeId> &get_captures () const { return captures; }
 
+  // A move closure captures its variables by value instead of by reference.
+  bool get_is_move () const { return is_move; }
+  void set_is_move (bool value) { is_move = value; }
+
 private:
   TyTy::TupleType *parameters;
   TyVar result_type;
   DefId id;
   std::set<NodeId> captures;
+  bool is_move = false;
 };
 
 class ArrayType : public BaseType

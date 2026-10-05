@@ -1969,8 +1969,10 @@ TypeCheckExpr::visit (HIR::ClosureExpr &expr)
     for (auto cap : opt_cap.value ())
       captures.insert (cap);
 
-  infered = new TyTy::ClosureType (ref, id, ident, closure_args, result_type,
-				   subst_refs, captures);
+  auto closure_type = new TyTy::ClosureType (ref, id, ident, closure_args,
+					     result_type, subst_refs, captures);
+  closure_type->set_is_move (expr.get_has_move ());
+  infered = closure_type;
 
   // FIXME
   // all closures automatically inherit the appropriate fn trait. Lets just

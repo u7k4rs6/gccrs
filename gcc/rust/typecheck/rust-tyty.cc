@@ -2749,10 +2749,12 @@ ClosureType::is_equal (const BaseType &other) const
 BaseType *
 ClosureType::clone () const
 {
-  return new ClosureType (get_ref (), get_ty_ref (), ident, id,
-			  (TyTy::TupleType *) parameters->clone (), result_type,
-			  clone_substs (), captures, get_combined_refs (),
-			  specified_bounds);
+  auto closure = new ClosureType (get_ref (), get_ty_ref (), ident, id,
+				  (TyTy::TupleType *) parameters->clone (),
+				  result_type, clone_substs (), captures,
+				  get_combined_refs (), specified_bounds);
+  closure->set_is_move (is_move);
+  return closure;
 }
 
 ClosureType *

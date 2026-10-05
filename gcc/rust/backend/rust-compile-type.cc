@@ -304,10 +304,11 @@ TyTyResolveCompile::visit (const TyTy::ClosureType &type)
       // FIXME get the var pattern name
       std::string mappings_name = "capture_" + std::to_string (i);
 
-      // FIXME
-      // this should be based on the closure move-ability
+      // a move closure stores its captures by value, any other closure
+      // stores a reference to them
       tree decl_type = TyTyResolveCompile::compile (ctx, lookup);
-      tree capture_type = build_reference_type (decl_type);
+      tree capture_type
+	= type.get_is_move () ? decl_type : build_reference_type (decl_type);
       fields.emplace_back (mappings_name, capture_type,
 			   type.get_ident ().locus);
     }

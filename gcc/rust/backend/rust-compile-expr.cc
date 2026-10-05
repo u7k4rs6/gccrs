@@ -3058,10 +3058,12 @@ CompileExpr::visit (HIR::ClosureExpr &expr)
 	  bool found = ctx->lookup_var_decl (*hid, &var);
 	  rust_assert (found);
 
-	  // FIXME
-	  // this should bes based on the closure move-ability
+	  // a move closure takes the value of the variable, any other closure
+	  // its address
 	  tree var_expr = var->get_tree (expr.get_locus ());
-	  tree val = address_expression (var_expr, expr.get_locus ());
+	  tree val = closure_tyty->get_is_move ()
+		       ? var_expr
+		       : address_expression (var_expr, expr.get_locus ());
 	  vals.push_back (val);
 	}
       else
@@ -3129,10 +3131,11 @@ CompileExpr::generate_closure_function (HIR::ClosureExpr &expr,
 	  // get the assessor
 	  tree binding = Backend::struct_field_expression (
 	    self_param->get_tree (expr.get_locus ()), idx, expr.get_locus ());
-	  tree indirection = indirect_expression (binding, expr.get_locus ());
+	  if (!closure_tyty.get_is_move ())
+	    binding = indirect_expression (binding, expr.get_locus ());
 
 	  // insert bindings
-	  ctx->insert_closure_binding (*hid, indirection);
+	  ctx->insert_closure_binding (*hid, binding);
 
 	  // continue
 	  idx++;
