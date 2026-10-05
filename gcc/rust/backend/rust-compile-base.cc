@@ -74,11 +74,13 @@ HIRCompileBase::setup_fndecl (tree fndecl, bool is_main_entry_point,
     }
 
   // is it a const fn
+  //
+  // A const fn can read memory through its reference arguments, so it is a
+  // pure function rather than a const one, which GCC would assume reads no
+  // memory at all and merge calls to across writes.
   DECL_DECLARED_CONSTEXPR_P (fndecl) = qualifiers.is_const ();
   if (qualifiers.is_const ())
-    {
-      TREE_READONLY (fndecl) = 1;
-    }
+    DECL_PURE_P (fndecl) = 1;
 
   // is it inline?
   for (const auto &attr : attrs)
