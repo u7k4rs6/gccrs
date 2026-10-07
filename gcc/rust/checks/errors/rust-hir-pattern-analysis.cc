@@ -1561,9 +1561,14 @@ split_constructors (std::vector<Constructor> &ctors, PlaceInfo &place_info)
 // The core of the algorithm. It computes the usefulness and exhaustiveness of a
 // given matrix recursively.
 // TODO: calculate usefulness
+//
+// RELEVANT is false below a constructor that is present while some of its
+// sibling constructors are missing entirely. Like rustc, only the missing
+// constructors are reported then, not values left uncovered by guards below
+// the present ones.
 static WitnessMatrix
 compute_exhaustiveness_and_usefulness (Resolver::TypeCheckContext *ctx,
-				       Matrix &matrix)
+				       Matrix &matrix, bool relevant = true)
 {
   rust_debug ("call compute_exhaustiveness_and_usefulness");
   rust_debug ("matrix: %s", matrix.to_string ().c_str ());
@@ -1575,9 +1580,20 @@ compute_exhaustiveness_and_usefulness (Resolver::TypeCheckContext *ctx,
       return WitnessMatrix::make_unit ();
     }
 
-  // Base case: there are no columns in matrix.
+  // Base case: there are no columns in matrix. A row without a guard covers
+  // what is left, but a guarded row may not match, so if every row is under
+  // a guard the remaining values are not covered.
   if (matrix.get_place_infos ().empty ())
-    return WitnessMatrix::make_empty ();
+    {
+      for (const MatrixRow &row : matrix.get_rows ())
+	if (!row.is_under_guard ())
+	  return WitnessMatrix::make_empty ();
+
+      if (!relevant)
+	return WitnessMatrix::make_empty ();
+
+      return WitnessMatrix::make_unit ();
+    }
 
   std::vector<Constructor> heads;
   for (auto head : matrix.heads ())
@@ -1598,8 +1614,11 @@ compute_exhaustiveness_and_usefulness (Resolver::TypeCheckContext *ctx,
       // memory usage.
       Matrix spec_matrix = matrix.specialize (ctor);
 
+      bool ctor_relevant
+	= relevant && (missings.empty () || missings.count (ctor) > 0);
       WitnessMatrix witness
-	= compute_exhaustiveness_and_usefulness (ctx, spec_matrix);
+	= compute_exhaustiveness_and_usefulness (ctx, spec_matrix,
+						 ctor_relevant);
 
       TyTy::BaseType *ty = matrix.get_place_infos ().at (0).get_type ();
       witness.apply_constructor (ctor, missings, ty);
